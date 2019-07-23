@@ -18,7 +18,7 @@ from framework.company import Company
 #from framework.order import Cpycompany
 from framework.utils import save_keras_sequential, load_keras_sequential
 from framework.logger import logger
-
+import os
 import random
 
 class State:
@@ -87,6 +87,7 @@ class DeepQLearningTrader(ITrader):
             load_trained_model: Flag to trigger loading an already trained neural network
             train_while_trading: Flag to trigger on-the-fly training while trading
         """
+
         # Save experts, training mode and name
         super().__init__(color, name)
         assert expert_a is not None and expert_b is not None
@@ -107,6 +108,7 @@ class DeepQLearningTrader(ITrader):
         self.batch_size = 64
         self.min_size_of_memory_before_training = 1000  # should be way bigger than batch_size, but smaller than memory
         self.memory = deque(maxlen=2000)
+        self.sample_size = 64
 
         # Attributes necessary to remember our last actions and fill our memory with experiences
         self.last_state = None
@@ -116,11 +118,14 @@ class DeepQLearningTrader(ITrader):
         self.last_order = None
         self.last_input = None
 
+        self.loaded = False
+
         # Create main model, either as trained model (from file) or as untrained model (from scratch)
         self.model = None
         if load_trained_model:
             self.model = load_keras_sequential(self.RELATIVE_DATA_DIRECTORY, self.get_name())
             logger.info(f"DQL Trader: Loaded trained model")
+            self.loaded = True
         if self.model is None:  # loading failed or we didn't want to use a trained model
             self.model = Sequential()
             self.model.add(Dense(self.hidden_size * 2, input_dim=self.state_size, activation='relu'))
@@ -205,7 +210,7 @@ class DeepQLearningTrader(ITrader):
                    [Order(OrderType.SELL, Company.A, portfolio.get_stock(Company.A)),Order(OrderType.SELL, Company.B, portfolio.get_stock(Company.B))]]
 
 
-        #randomize action
+        # randomize action
         if random.random() < self.epsilon:
             next_action = random.choice([0,1,2,3])
         else:
@@ -221,20 +226,33 @@ class DeepQLearningTrader(ITrader):
 
 
         if(self.last_state != None):
-            #r = portfolio_value - self.last_portfolio_value
-            r = portfolio_value
+            r = portfolio_value - self.last_portfolio_value
+            #r = portfolio_value
             action_vals[0][self.last_order] = r
 
-            self.model.fit(self.last_input, action_vals, self.batch_size)
+            self.memory.append([self.last_input, action_vals])
 
-        # TODO Save created state, actions and portfolio value for the next call of trade()
+            if(len(self.memory) > self.min_size_of_memory_before_training and not self.loaded):
+                sample = random.sample(self.memory, self.sample_size)
+                trainSample = list()
+                testSample = list()
+
+                for [sampleIn, sampleOut] in sample:
+                    trainSample.append(sampleIn[0])
+                    testSample.append(sampleOut[0])
+
+
+
+                self.model.fit(np.array(trainSample), np.array(testSample), self.batch_size)
+
+        # Save created state, actions and portfolio value for the next call of trade()
 
         self.last_input = nn_input
         self.last_state = state
         self.last_order = next_action
         self.last_portfolio_value = portfolio_value
 
-        print(next_action, portfolio_value, self.epsilon)
+        print(next_action, action_vals, portfolio.cash, portfolio.get_stock(Company.A), portfolio.get_stock(Company.B))
         return order_list
 
 
