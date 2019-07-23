@@ -97,14 +97,14 @@ class DeepQLearningTrader(ITrader):
 
         # Parameters for neural network
         self.state_size = 4
-        self.action_size = 4
+        self.action_size = 5
         self.hidden_size = 50
 
         # Parameters for deep Q-learning
         self.learning_rate = 0.001
         self.epsilon = 1.0
         self.epsilon_decay = 0.999
-        self.epsilon_min = 0.01
+        self.epsilon_min = 0.1
         self.batch_size = 64
         self.min_size_of_memory_before_training = 1000  # should be way bigger than batch_size, but smaller than memory
         self.memory = deque(maxlen=2000)
@@ -118,14 +118,12 @@ class DeepQLearningTrader(ITrader):
         self.last_order = None
         self.last_input = None
 
-        self.loaded = False
 
         # Create main model, either as trained model (from file) or as untrained model (from scratch)
         self.model = None
         if load_trained_model:
             self.model = load_keras_sequential(self.RELATIVE_DATA_DIRECTORY, self.get_name())
             logger.info(f"DQL Trader: Loaded trained model")
-            self.loaded = True
         if self.model is None:  # loading failed or we didn't want to use a trained model
             self.model = Sequential()
             self.model.add(Dense(self.hidden_size * 2, input_dim=self.state_size, activation='relu'))
@@ -149,7 +147,8 @@ class DeepQLearningTrader(ITrader):
             a_val = portfolio.get_stock(Company.A) * stock_data_a.get_last()[-1]
             b_val = portfolio.get_stock(Company.B) * stock_data_b.get_last()[-1]
 
-
+            buf = portfolio.cash + a_val + b_val
+            print(buf, np.log(buf))
 
             return np.log(portfolio.cash + a_val + b_val)
 
@@ -207,12 +206,13 @@ class DeepQLearningTrader(ITrader):
         actions = [[Order(OrderType.BUY, Company.A, int((portfolio.cash/2) // stock_data_a.get_last()[-1])),Order(OrderType.BUY, Company.B, int((portfolio.cash/2) // stock_data_b.get_last()[-1]))],
                    [Order(OrderType.BUY, Company.A, int((portfolio.cash) // stock_data_a.get_last()[-1])),Order(OrderType.SELL, Company.B, portfolio.get_stock(Company.B))],
                    [Order(OrderType.SELL, Company.A, portfolio.get_stock(Company.A)),Order(OrderType.BUY, Company.B, int(portfolio.cash // stock_data_b.get_last()[-1]))],
-                   [Order(OrderType.SELL, Company.A, portfolio.get_stock(Company.A)),Order(OrderType.SELL, Company.B, portfolio.get_stock(Company.B))]]
+                   [Order(OrderType.SELL, Company.A, portfolio.get_stock(Company.A)),Order(OrderType.SELL, Company.B, portfolio.get_stock(Company.B))],
+                   [Order(OrderType.SELL, Company.A, 0),Order(OrderType.SELL, Company.B, 0)]]
 
 
         # randomize action
-        if random.random() < self.epsilon:
-            next_action = random.choice([0,1,2,3])
+        if random.random() < self.epsilon and self.train_while_trading:
+            next_action = random.choice(list(range(self.action_size)))
         else:
             next_action = np.where(action_vals[0] == np.amax(action_vals[0]))[0][0]
 
@@ -232,7 +232,7 @@ class DeepQLearningTrader(ITrader):
 
             self.memory.append([self.last_input, action_vals])
 
-            if(len(self.memory) > self.min_size_of_memory_before_training and not self.loaded):
+            if(len(self.memory) > self.min_size_of_memory_before_training and self.train_while_trading):
                 sample = random.sample(self.memory, self.sample_size)
                 trainSample = list()
                 testSample = list()
