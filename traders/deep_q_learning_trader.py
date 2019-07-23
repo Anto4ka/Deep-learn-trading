@@ -19,6 +19,7 @@ from framework.company import Company
 from framework.utils import save_keras_sequential, load_keras_sequential
 from framework.logger import logger
 
+import random
 
 class State:
     def __init__(self, last_stock_data_a, last_stock_data_b, vote_a, vote_b):
@@ -47,12 +48,24 @@ class State:
 
                 val1 = vals[0][-1]
                 val2 = vals[1][-1]
-                if(val2/val1) > 1:
-                    return 1.0
-                elif(val2/val1 == 1):
+                ratio = val2/val1
+
+                if(ratio) > 1.0:
+                    if ratio > 2.0:
+                        return 2.0
+                    elif ratio > 1.5:
+                        return 1.5
+                    else:
+                        return 1.0
+                elif(ratio == 1.0):
                     return 0.0
                 else:
-                    return -1.0
+                    if ratio < 0.5:
+                        return -2.0
+                    elif ratio < 0.75:
+                        return -1.5
+                    else:
+                        return -1.0
 
         self.aDiff = getDiff(last_stock_data_a)
         self.bDiff = getDiff(last_stock_data_b)
@@ -82,7 +95,7 @@ class DeepQLearningTrader(ITrader):
         self.train_while_trading = train_while_trading
 
         # Parameters for neural network
-        self.state_size = 2
+        self.state_size = 4
         self.action_size = 4
         self.hidden_size = 50
 
@@ -101,6 +114,7 @@ class DeepQLearningTrader(ITrader):
         self.last_action_b = None
         self.last_portfolio_value = None
         self.last_order = None
+        self.last_input = None
 
         # Create main model, either as trained model (from file) or as untrained model (from scratch)
         self.model = None
@@ -127,13 +141,17 @@ class DeepQLearningTrader(ITrader):
 
 
         def reward(portfolio, stock_data_a, stock_data_b):
-
             a_val = portfolio.get_stock(Company.A) * stock_data_a.get_last()[-1]
             b_val = portfolio.get_stock(Company.B) * stock_data_b.get_last()[-1]
 
-            return portfolio.cash + a_val + b_val
+
+
+            return np.log(portfolio.cash + a_val + b_val)
+
+
+
         """
-        Generate action to be taken on the "stock market"
+        Generate action to be taken on the "stock marketf"
     
         Args:
           portfolio : current Portfolio of this traders
@@ -172,12 +190,11 @@ class DeepQLearningTrader(ITrader):
 
 
         # TODO Q-Learning
-        nn_input = np.array([np.array([state.aDiff, state.vote_a]),
-                             np.array([state.bDiff, state.vote_b])])
+        nn_input = np.array([np.array([state.aDiff, state.vote_a,
+                             state.bDiff, state.vote_b])])
+
 
         action_vals = self.model.predict(nn_input)
-
-
 
         # TODO Store state as experience (memory) and train the neural network only if trade() was called before at least once
 
@@ -188,26 +205,36 @@ class DeepQLearningTrader(ITrader):
                    [Order(OrderType.SELL, Company.A, portfolio.get_stock(Company.A)),Order(OrderType.SELL, Company.B, portfolio.get_stock(Company.B))]]
 
 
-        next_action = np.where(action_vals == np.amax(action_vals))[0][0]
+        #randomize action
+        if random.random() < self.epsilon:
+            next_action = random.choice([0,1,2,3])
+        else:
+            next_action = np.where(action_vals[0] == np.amax(action_vals[0]))[0][0]
+
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+        else:
+            self.epsilon = self.epsilon_min
+
         order_list = actions[next_action]
         portfolio_value = reward(portfolio, stock_data_a, stock_data_b)
 
 
         if(self.last_state != None):
-            r = portfolio_value - self.last_portfolio_value
-            action_vals[next_action] = r
+            #r = portfolio_value - self.last_portfolio_value
+            r = portfolio_value
+            action_vals[0][self.last_order] = r
 
-            old_nn_input = np.array([[self.last_state.aDiff, self.last_state.vote_a],
-                                     [self.last_state.bDiff, self.last_state.vote_b]])
-
-            self.model.fit(old_nn_input, action_vals, self.batch_size)
+            self.model.fit(self.last_input, action_vals, self.batch_size)
 
         # TODO Save created state, actions and portfolio value for the next call of trade()
 
+        self.last_input = nn_input
         self.last_state = state
-        self.last_order = order_list
+        self.last_order = next_action
         self.last_portfolio_value = portfolio_value
 
+        print(next_action, portfolio_value, self.epsilon)
         return order_list
 
 
@@ -242,6 +269,8 @@ if __name__ == "__main__":
         logger.info(f"DQL Trader: Finished training episode {i}, "
                     f"final portfolio value training {final_values_training[-1]} vs. "
                     f"final portfolio value test {final_values_test[-1]}")
+
+
 
     from matplotlib import pyplot as plt
 
