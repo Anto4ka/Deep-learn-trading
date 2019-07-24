@@ -28,11 +28,11 @@ class State:
 
         def convertVote(vote):
             if vote == Vote.BUY:
-                return 1.0
+                return 2
             elif vote == Vote.HOLD:
-                return 0.0
+                return 1
             elif vote == Vote.SELL:
-                return -1.0
+                return 0
             else:
                 exit("Wrong vote")
 
@@ -49,23 +49,14 @@ class State:
                 val1 = vals[0][-1]
                 val2 = vals[1][-1]
                 ratio = val2/val1
+                print("Ratio: ", ratio)
 
                 if(ratio) > 1.0:
-                    if ratio > 2.0:
-                        return 2.0
-                    elif ratio > 1.5:
-                        return 1.5
-                    else:
-                        return 1.0
+                        return 2
                 elif(ratio == 1.0):
-                    return 0.0
+                    return 1
                 else:
-                    if ratio < 0.5:
-                        return -2.0
-                    elif ratio < 0.75:
-                        return -1.5
-                    else:
-                        return -1.0
+                    return 0
 
         self.aDiff = getDiff(last_stock_data_a)
         self.bDiff = getDiff(last_stock_data_b)
@@ -107,8 +98,7 @@ class DeepQLearningTrader(ITrader):
         self.epsilon_min = 0.1
         self.batch_size = 64
         self.min_size_of_memory_before_training = 1000  # should be way bigger than batch_size, but smaller than memory
-        self.memory = deque(maxlen=2000)
-        self.sample_size = 64
+        self.memory = deque(maxlen=3000)
 
         # Attributes necessary to remember our last actions and fill our memory with experiences
         self.last_state = None
@@ -148,9 +138,8 @@ class DeepQLearningTrader(ITrader):
             b_val = portfolio.get_stock(Company.B) * stock_data_b.get_last()[-1]
 
             buf = portfolio.cash + a_val + b_val
-            print(buf, np.log(buf))
 
-            return np.log(portfolio.cash + a_val + b_val)
+            return np.float(portfolio.cash + a_val + b_val)
 
 
 
@@ -210,16 +199,19 @@ class DeepQLearningTrader(ITrader):
                    [Order(OrderType.SELL, Company.A, 0),Order(OrderType.SELL, Company.B, 0)]]
 
 
+        if not self.train_while_trading:
+            self.epsilon = 0.0
+        else:
+            if self.epsilon > self.epsilon_min:
+                self.epsilon *= self.epsilon_decay
+            else:
+                self.epsilon = self.epsilon_min
+
         # randomize action
-        if random.random() < self.epsilon and self.train_while_trading:
+        if random.random() < self.epsilon:
             next_action = random.choice(list(range(self.action_size)))
         else:
-            next_action = np.where(action_vals[0] == np.amax(action_vals[0]))[0][0]
-
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-        else:
-            self.epsilon = self.epsilon_min
+            next_action = np.argmax(action_vals[0])
 
         order_list = actions[next_action]
         portfolio_value = reward(portfolio, stock_data_a, stock_data_b)
@@ -228,19 +220,20 @@ class DeepQLearningTrader(ITrader):
         if(self.last_state != None):
             r = portfolio_value - self.last_portfolio_value
             #r = portfolio_value
+
             action_vals[0][self.last_order] = r
+
 
             self.memory.append([self.last_input, action_vals])
 
             if(len(self.memory) > self.min_size_of_memory_before_training and self.train_while_trading):
-                sample = random.sample(self.memory, self.sample_size)
+                sample = random.sample(self.memory, self.batch_size)
                 trainSample = list()
                 testSample = list()
 
                 for [sampleIn, sampleOut] in sample:
                     trainSample.append(sampleIn[0])
                     testSample.append(sampleOut[0])
-
 
 
                 self.model.fit(np.array(trainSample), np.array(testSample), self.batch_size)
@@ -252,7 +245,8 @@ class DeepQLearningTrader(ITrader):
         self.last_order = next_action
         self.last_portfolio_value = portfolio_value
 
-        print(next_action, action_vals, portfolio.cash, portfolio.get_stock(Company.A), portfolio.get_stock(Company.B))
+        print(nn_input)
+        print(self.epsilon, next_action, action_vals, portfolio.cash, portfolio.get_stock(Company.A), portfolio.get_stock(Company.B))
         return order_list
 
 
