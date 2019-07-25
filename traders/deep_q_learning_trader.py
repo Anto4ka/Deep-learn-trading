@@ -140,11 +140,9 @@ class DeepQLearningTrader(ITrader):
 
         """
         Generate action to be taken on the "stock marketf"
-
         Args:
           portfolio : current Portfolio of this traders
           stock_market_data : StockMarketData for evaluation
-
         Returns:
           A OrderList instance, may be empty never None
         """
@@ -229,9 +227,9 @@ class DeepQLearningTrader(ITrader):
                 else:
                     print("Q: ", q)
                     if q > qTrash:
-                        return pos * oldVal / newVal
+                        return pos/2 * oldVal / newVal
                     else:
-                        return 50 *  oldVal / newVal
+                        return pos/2 *  oldVal / newVal
 
             r = reward(self.last_portfolio_value, portfolio_value)
             # r = portfolio_value - self.last_portfolio_value
@@ -264,7 +262,7 @@ class DeepQLearningTrader(ITrader):
 
 
 # This method retrains the traders from scratch using training data from TRAINING and test data from TESTING
-EPISODES = 5
+EPISODES = 10
 if __name__ == "__main__":
     # Create the training data and testing data
     # Hint: You can crop the training data with training_data.deepcopy_first_n_items(n)
