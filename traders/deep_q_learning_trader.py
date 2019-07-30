@@ -130,14 +130,6 @@ class DeepQLearningTrader(ITrader):
 
     def trade(self, portfolio: Portfolio, stock_market_data: StockMarketData) -> List[Order]:
 
-        def pVal(portfolio, stock_data_a, stock_data_b):
-            a_val = portfolio.get_stock(Company.A) * stock_data_a.get_last()[-1]
-            b_val = portfolio.get_stock(Company.B) * stock_data_b.get_last()[-1]
-
-            buf = portfolio.cash + a_val + b_val
-
-            return np.float(portfolio.cash + a_val + b_val)
-
         """
         Generate action to be taken on the "stock marketf"
         Args:
@@ -207,7 +199,6 @@ class DeepQLearningTrader(ITrader):
             next_action = np.argmax(action_vals[0])
 
         order_list = actions[next_action]
-        # portfolio_value = pVal(portfolio, stock_data_a, stock_data_b)
         portfolio_value = portfolio.get_value(stock_market_data, stock_market_data.get_most_recent_trade_day())
 
         if (self.last_state != None and self.train_while_trading):
@@ -215,8 +206,6 @@ class DeepQLearningTrader(ITrader):
             def reward(oldVal, newVal):
                 neg = -100.0
                 pos = 100.0
-
-                qTrash = 1.000
 
                 q = newVal / oldVal
 
@@ -226,14 +215,9 @@ class DeepQLearningTrader(ITrader):
                     return -10
                 else:
                     print("Q: ", q)
-                    if q > qTrash:
-                        return pos/2 * oldVal / newVal
-                    else:
-                        return pos/2 *  oldVal / newVal
+                    return pos/2 *  oldVal / newVal
 
             r = reward(self.last_portfolio_value, portfolio_value)
-            # r = portfolio_value - self.last_portfolio_value
-            # r = portfolio_value
 
             action_vals[0][self.last_order] = r
 
